@@ -1,0 +1,145 @@
+# coding=utf-8
+import os
+import scipy.misc as sm
+import tensorflow as tf
+from tensorflow.examples.tutorials.mnist import input_data
+
+mnist = input_data.read_data_sets("/Users/rebecca/Desktop/人工智能/mnist", one_hot=True)
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+# prelu函数  x<0 时 a*x
+def prelu(_x):
+        alphas = tf.get_variable('alpha', _x.get_shape()[-1], initializer=tf.constant_initializer(0.0),
+                                 dtype=tf.float32)
+        pos = tf.nn.relu(_x)
+        neg = alphas * (_x - tf.abs(_x)) * 0.5
+        return pos + neg
+
+x = tf.placeholder(tf.float32, [None, 784])  # 定义输入特征量
+y_ = tf.placeholder(tf.float32, [None, 10])  # 定义真实label
+x_image = tf.reshape(x, [-1, 28, 28, 1])  # 将1*784的输入张量转为28*28*1的三维矩阵
+
+# 网络的第一层：输入卷积层（含池化）
+
+W_conv1 = tf.Variable(tf.truncated_normal([5, 5, 1, 32], stddev=0.1))# 初始化过滤器权重参数，其中输入子节点矩阵的深度为1，过滤器尺寸为5*5、深度为32
+b_conv1 = tf.Variable(tf.constant(0.1, shape=[32]))  # 初始化过滤器输出单位节点矩阵中的32个节点的偏置
+h_conv1 = tf.nn.relu(tf.nn.conv2d(x_image, W_conv1, strides=[1, 1, 1, 1], padding='SAME') + b_conv1)
+#h_conv1 = prelu(tf.nn.conv2d(x_image, W_conv1, strides=[1, 1, 1, 1], padding='SAME') + b_conv1)
+# 对卷积输出进行最大池化操作
+h_pool1 =tf.nn.max_pool(h_conv1, ksize=[1, 2, 2, 1],
+                   strides=[1, 2, 2, 1], padding='SAME')
+#可视化 生成日志
+tf.summary.image('x_input', x_image, max_outputs=10)
+tf.summary.histogram('W_con1', W_conv1)
+tf.summary.histogram('b_con1', b_conv1)
+
+ # 网络的第二层：卷积层（含池化）
+
+W_conv2 = tf.Variable(tf.truncated_normal([5, 5, 32, 64], stddev=0.1))# 初始化过滤器权重参数，其中输入子节点矩阵的深度为32，过滤器尺寸为5*5、深度为64
+b_conv2 = tf.Variable(tf.constant(0.1, shape=[64]))  # 初始化过滤器输出单位节点矩阵中的64个节点的偏置
+h_conv2 = tf.nn.relu(tf.nn.conv2d(h_pool1, W_conv2, strides=[1, 1, 1, 1], padding='SAME') + b_conv2)# 通过非线性激活函数relu
+#h_conv2 = prelu(tf.nn.conv2d(h_pool1, W_conv2, strides=[1, 1, 1, 1], padding='SAME') + b_conv2)
+h_pool2 = tf.nn.max_pool(h_conv2, ksize=[1, 2, 2, 1],
+                             strides=[1, 2, 2, 1], padding='SAME')
+#可视化 生成日志
+tf.summary.histogram('W_con2', W_conv2)
+tf.summary.histogram('b_con2', b_conv2)
+
+#反卷积——
+#'''with tf.name_scope("reverse_conv1") as scope:
+ #       reverse_weight1 = tf.Variable(tf.truncated_normal([5, 5, 32, 64], stddev=0.1))
+#      reverse_conv1 = tf.nn.conv2d_transpose(h_conv2, reverse_weight1, [50, 14, 14, 32], strides=[1, 1, 1, 1],
+ #                                              padding="SAME")
+  #      reverse_weight2 = tf.Variable(tf.truncated_normal([5, 5, 32, 64], stddev=0.1))
+   #     reverse_conv2 = tf.nn.conv2d_transpose(reverse_conv1, reverse_weight2, [50, 28, 28, 1], strides=[1, 2, 2, 1],
+    #                                           padding="SAME")
+
+     #   reverse_weight3 = tf.Variable(tf.truncated_normal([5, 5, 32, 64], stddev=0.1))
+      #  reverse_conv3 = tf.nn.conv2d_transpose(h_conv1, reverse_weight3, [50, 28, 28, 1], strides=[1, 1, 1, 1],
+   #                                            padding="SAME")
+   # tf.summary.image("reverse_conv2", reverse_conv2, 10)
+   # tf.summary.image("reverse_conv1", reverse_conv3, 10)'''
+
+
+# 设置网络的第三层：全连接层
+
+W_fc1 = tf.Variable(tf.truncated_normal([7 * 7 * 64, 1024], stddev=0.1))# 初始化全连接层权重参数，其中该层的输入为7*7*64，输出为1*1024
+b_fc1 = tf.Variable(tf.constant(0.1, shape=[1024]))# 建立全连接层，隐含节点1024个，并初始化
+h_pool2_flat = tf.reshape(h_pool2, [-1, 7 * 7 * 64])# 将第二层的输出张量转化为1*（7*7*64）的一维向量
+h_fc1 = tf.nn.relu(tf.matmul(h_pool2_flat, W_fc1) + b_fc1)
+    #h_fc1 = prelu(tf.matmul(h_pool2_flat, W_fc1) + b_fc1)
+    # 通过非线性激活函数prelu
+
+
+    # 为减轻过拟合，使用Dropout层
+keep_prob = tf.placeholder(tf.float32)  # 定义dropout百分比量
+h_fc1_drop = tf.nn.dropout(h_fc1, keep_prob)  # 对该层设置dropout
+
+tf.summary.histogram('W_fc1', W_fc1)  # 将迭代后权值张量分布情况生成到日志
+tf.summary.histogram('b_fc1', b_fc1)  # 将迭代后偏置张量分布情况生成到日志
+
+    # 设置网络的第四层：输出全连接层
+
+W_fc2 = tf.Variable(tf.truncated_normal([1024,10], stddev=0.1))# 初始化全连接层权重参数，其中该层的输入为1*1024，输出为1*10
+b_fc2 = tf.Variable(tf.constant(0.1, shape=[10]))   # 初始化该层10个输出节点的偏置
+y_conv = tf.nn.softmax(tf.matmul(h_fc1_drop, W_fc2) + b_fc2)# 通过非线性激活函数softmax，得到概率输出
+tf.summary.histogram('W_fc2', W_fc2)  # 将迭代后权值张量分布情况生成到日志
+tf.summary.histogram('b_fc2', b_fc2)  # 将迭代后偏置张量分布情况生成到日志
+
+# 设置损失函数和优化器
+cross_entropy = tf.reduce_mean(-tf.reduce_sum(y_ * tf.log(y_conv),
+                                              reduction_indices=[1]))
+train_step = tf.train.AdagradOptimizer(learning_rate=0.01).minimize(cross_entropy)
+
+
+# 2.训练卷积神经网络，并同步打印训练和测试情况
+
+sess = tf.InteractiveSession()  # 定义会话
+saver = tf.train.Saver()
+ # 判断训练好的模型是否存在，如果不存在，则重新训练
+is_exist = True
+savePath = '/Users/rebecca/Desktop/'
+saveFile = savePath + 'trainedmodel.ckpt'
+
+correct_prediction = tf.equal(tf.argmax(y_conv, 1), tf.argmax(y_, 1)) # 判断两个张量每一维是否相等
+accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+
+tf.summary.scalar('loss', cross_entropy)# 将迭代后损失函数的标量变化情况生成到日志
+tf.summary.scalar('accuracy', accuracy) # 将迭代后识别准确率的标量变化情况生成到日志
+    #查找模型
+tf.global_variables_initializer().run()  # 全局参数初始化
+
+merged = tf.summary.merge_all()  # 将前面定义的所有将数据生成到日志的操作都执行一次
+summary_writer = tf.summary.FileWriter('./log/', graph=sess.graph)# 初始化日志，并定义日志文件的存放位置：代码文件所在目录下的log文件夹中
+
+for epoch in range(15000):  # 使用6000个随机样本集进行训练
+    batch = mnist.train.next_batch(50)
+    train_step.run(feed_dict={x: batch[0], y_: batch[1], keep_prob: 0.5})#防止过拟合，只让一般节点参与训练
+    if epoch % 400 == 0:  # 每迭代400轮时显示一次
+        train_accuracy = accuracy.eval(feed_dict={x: batch[0], y_: batch[1],
+                                                          keep_prob: 1.0})#训练
+        print("step %d, training accuracy %g, test accuracy %g" % (epoch,
+                                                                           train_accuracy, accuracy.eval(feed_dict={
+                    x: mnist.test.images, y_: mnist.test.labels, keep_prob: 1.0})))#打印
+
+        summary = sess.run(merged, feed_dict={x: batch[0], y_: batch[1],
+                                                      keep_prob: 1.0})
+        summary_writer.add_summary(summary, epoch)  # 每次监测时，将所有日志写入文件
+    print("final test accuracy %g" % accuracy.eval(feed_dict={
+        x: mnist.test.images, y_: mnist.test.labels, keep_prob: 1.0}))
+   #输出错误识别的图片
+''' for i in range(mnist.test.labels.shape[0]):
+        # 为了方便判断，每次判断一张图片
+        batch = mnist.test.next_batch(1)
+        result = sess.run(correct_prediction, feed_dict={x: batch[0], y_: batch[1], keep_prob: 1.0})
+        if result[0] == False:
+                # 用来查看机器把这张图片识别成什么数字的
+                result1 = sess.run(y_conv, feed_dict={x: batch[0], keep_prob: 1.0})
+                 # print (sess.run(tf.argmax(batch[1], 1))[0])
+                image = batch[0].reshape(28, 28)
+                 # 注意，这里想获取tf.argmax(batch[1], 1))里的内容，一定要先用sess.run，只有run了才真正的运算
+                filename =  '/Users/rebecca/Desktop/worse/' + 'image_%d_%d_%d.jpg' % (
+            i, sess.run(tf.argmax(batch[1], 1))[0], sess.run(tf.argmax(result1, 1))[0])
+                sm.toimage(image).save(filename)
+
+'''
